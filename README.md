@@ -1,0 +1,1 @@
+# grafana-ldap-team-sync
