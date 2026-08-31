@@ -1,0 +1,110 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: grafana-team-sync
+  labels:
+    app.kubernetes.io/name: grafana-team-sync
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      # Kill a hung run well before the next schedule fires
+      activeDeadlineSeconds: 540
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: grafana-team-sync
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: sync
+              # Replace with your registry
+              image: registry.example.com/grafana-team-sync:latest
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: LDAP_URL
+                  value: "ldaps://ldap.example.com:636"
+                # StartTLS upgrade for plain ldap:// URLs (mutually
+                # exclusive with ldaps://):
+                # - name: LDAP_STARTTLS
+                #   value: "true"
+                - name: LDAP_BIND_DN
+                  value: "cn=grafana-sync,ou=svc,dc=example,dc=com"
+                - name: LDAP_BIND_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: grafana-team-sync
+                      key: LDAP_BIND_PASSWORD
+                - name: LDAP_GROUP_BASE_DN
+                  value: "ou=groups,dc=example,dc=com"
+                # AD: "(objectClass=group)", posix: "(objectClass=posixGroup)"
+                - name: LDAP_GROUP_FILTER
+                  value: "(objectClass=groupOfNames)"
+                # member (DN lists) or memberUid (posixGroup uid strings)
+                - name: LDAP_MEMBER_MODE
+                  value: "member"
+                # Attribute holding the match key on user entries.
+                # MATCH_KEY=username setups: uid / sAMAccountName instead.
+                - name: LDAP_USER_MATCH_ATTR
+                  value: "mail"
+                # Exclude ineligible accounts, e.g. AD disabled accounts:
+                # "(&(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))"
+                # - name: LDAP_USER_FILTER
+                #   value: "(objectClass=*)"
+                # memberUid mode only:
+                # - name: LDAP_USER_BASE_DN
+                #   value: "ou=people,dc=example,dc=com"
+                # - name: LDAP_USER_UID_ATTR
+                #   value: "uid"
+                - name: GRAFANA_URL
+                  value: "https://grafana.example.com"
+                - name: GRAFANA_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: grafana-team-sync
+                      key: GRAFANA_TOKEN
+                - name: GROUP_PREFIX
+                  value: "grafana-"
+                - name: MATCH_KEY
+                  value: "email"
+                # Role-team name suffixes (e.g. grafana-abc_adm). Omit to
+                # use the built-in defaults.
+                - name: ROLE_SUFFIXES
+                  value: "adm,editor,viewer"
+                # Private-CA setups: mount the CA cert and point
+                # SSL_CA_BUNDLE at it (keeps verification on), or set
+                # SSL_VERIFY "false" to skip TLS verification entirely
+                # (testing only - logs a warning at startup).
+                # - name: SSL_CA_BUNDLE
+                #   value: /etc/ssl/private/ca.crt
+                # - name: SSL_VERIFY
+                #   value: "false"
+                # DRY_RUN defaults to true in the script; production must opt in
+                # explicitly. Flip to "true" here to preview changes safely.
+                - name: DRY_RUN
+                  value: "false"
+                - name: MAX_REMOVAL_RATIO
+                  value: "0.5"
+                - name: LOG_LEVEL
+                  value: "INFO"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
