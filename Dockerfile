@@ -11,7 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY sync.py .
 
-RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin sync
+# "sync" is taken by Debian's stock system account (uid 4)
+RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin teamsync
 USER 10001
 
 ENTRYPOINT ["python", "/app/sync.py"]
